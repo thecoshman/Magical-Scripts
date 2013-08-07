@@ -1,0 +1,230 @@
+#!/bin/bash
+# /etc/init.d/ftb
+# version 1.0.0 2013-08-07
+
+### BEGIN INIT INFO
+# Provides:   Feed-the-Beast
+# Required-Start: $local_fs $remote_fs
+# Required-Stop:  $local_fs $remote_fs
+# Should-Start:   $network
+# Should-Stop:    $network
+# Default-Start:  
+# Default-Stop:   
+# Short-Description:    Feed-the-Beast Mindcrack Server
+# Description:    Interfaces with the Feed-the-Beast Server
+### END INIT INFO
+
+# Default-Start:  2 3 4 5
+# Default-Stop:   0 1 6
+
+#Settings
+SERVICE='ftbserver.jar'
+OPTIONS='nogui'
+USERNAME='ftb'
+WORLD='world'
+MCPATH='/home/ftb/mindcrack'
+MIRRORPATH='/home/ftb/mirror'
+BACKUPPATH='/home/ftb/backups'
+MAXHEAP=1780
+MINHEAP=1536
+HISTORY=1024
+CPU_COUNT=8
+INVOCATION="java -Xms${MINHEAP}M -Xmx${MAXHEAP}M -XX:+UseConcMarkSweepGC \
+-XX:+CMSIncrementalPacing -XX:ParallelGCThreads=$CPU_COUNT -XX:+AggressiveOpts \
+-jar $SERVICE $OPTIONS"
+
+ME=`whoami`
+as_user() {
+  if [ $ME == $USERNAME ] ; then
+    bash -c "$1"
+  else
+    su - $USERNAME -c "$1"
+  fi
+}
+
+mc_view() {
+  if  pgrep -u $USERNAME -f $SERVICE > /dev/null
+  then
+    screen -drS ftb
+  else
+    echo "Error! $SERVICE is not running!"
+  fi
+}
+
+mc_start() {
+  if  pgrep -u $USERNAME -f $SERVICE > /dev/null
+  then
+    echo "$SERVICE is already running!"
+  else
+    echo "Starting $SERVICE..."
+    cd $MCPATH
+    screen -dmS ftb
+    screen -p 0 -S ftb -X stuff "sudo -u ftb -- $INVOCATION ; exit
+"
+    sleep 7
+    if pgrep -u $USERNAME -f $SERVICE > /dev/null
+    then
+      echo "$SERVICE is now running."
+    else
+      echo "Error! Could not start $SERVICE!"
+    fi
+  fi
+}
+
+mc_saveoff() {
+  if pgrep -u $USERNAME -f $SERVICE > /dev/null
+  then
+    echo "$SERVICE is running... suspending saves"
+    screen -p 0 -S ftb -X stuff "say Automatic worlds saves disabled
+"
+    screen -p 0 -S ftb -X stuff "save-off
+"
+    screen -p 0 -S ftb -X stuff "save-all
+"
+    sync
+    sleep 10
+  else
+    echo "$SERVICE is not running. Not suspending saves."
+  fi
+}
+
+mc_saveon() {
+  if pgrep -u $USERNAME -f $SERVICE > /dev/null
+  then
+    echo "$SERVICE is running... re-enabling saves"
+    screen -p 0 -S ftb -X stuff "save-on
+"
+    screen -p 0 -S ftb -X stuff "say Automatic world saves enabled
+"
+  else
+    echo "$SERVICE is not running. Not resuming saves."
+  fi
+}
+
+mc_stop() {
+  if pgrep -u $USERNAME -f $SERVICE > /dev/null
+  then
+    echo "Stopping $SERVICE"
+    screen -p 0 -S ftb -X stuff "say SERVER SHUTTING DOWN IN 10 SECONDS. Saving map...
+"
+    screen -p 0 -S ftb -X stuff "save-all
+"
+    sleep 10
+    screen -p 0 -S ftb -X stuff "stop
+"
+    sleep 7
+  else
+    echo "$SERVICE was not running."
+  fi
+  if pgrep -u $USERNAME -f $SERVICE > /dev/null
+  then
+    echo "Error! $SERVICE could not be stopped."
+  else
+    echo "$SERVICE is stopped."
+  fi
+}
+
+mc_update() {
+  echo "Upgrading is currently not supported"
+  return 0
+  if pgrep -u $USERNAME -f $SERVICE > /dev/null
+  then
+    echo "$SERVICE is running! Will not start update."
+  else
+    MC_SERVER_URL=http://s3.amazonaws.com/MinecraftDownload/launcher/minecraft_server.jar?v=`date | sed "s/[^a-zA-Z0-9]/_/g"`
+    as_user "cd $MCPATH && wget -q -O $MCPATH/minecraft_server.jar.update $MC_SERVER_URL"
+    if [ -f $MCPATH/minecraft_server.jar.update ]
+    then
+      if `diff $MCPATH/$SERVICE $MCPATH/minecraft_server.jar.update >/dev/null`
+      then 
+        echo "You are already running the latest version of $SERVICE."
+      else
+        as_user "mv $MCPATH/minecraft_server.jar.update $MCPATH/$SERVICE"
+        echo "Minecraft successfully updated."
+      fi
+    else
+      echo "Minecraft update could not be downloaded."
+    fi
+  fi
+}
+
+mc_backup() {
+    screen -p 0 -S ftb -X stuff "say Sarting Backup... expect some lag
+"
+    echo "Backing up minecraft server data..."
+    NOW=`date "+%Y-%m-%d_%Hh%M"`
+    BACKUP_FILE="$BACKUPPATH/${WORLD}_${NOW}.tar.gz"
+    mc_saveoff
+       echo "Updating mirror..."
+       as_user "rsync -qa ${MCPATH}/${WORLD}/ $MIRRORPATH"
+    mc_saveon
+    echo "Mirror updated. Compresing mirror to $BACKUP_FILE..."
+    as_user "tar -C \"$MIRRORPATH\" -czf \"$BACKUP_FILE\" \"$MIRRORPATH\""
+
+    echo "Done."
+    screen -p 0 -S ftb -X stuff "say Back up complete. Take care now
+"
+}
+
+mc_command() {
+  command="$1";
+  if pgrep -u $USERNAME -f $SERVICE > /dev/null
+  then
+    pre_log_len=`wc -l "$MCPATH/server.log" | awk '{print $1}'`
+    echo "$SERVICE is running... executing command"
+    screen -p 0 -S ftb -X stuff "$command
+"
+    sleep .1 # assumes that the command will run and print to the log file in less than .1 seconds
+    # print output
+    tail -n $[`wc -l "$MCPATH/server.log" | awk '{print $1}'`-$pre_log_len] "$MCPATH/server.log"
+  fi
+}
+
+#Start-Stop here
+case "$1" in
+  start)
+    mc_start
+    ;;
+  stop)
+    mc_stop
+    ;;
+  restart)
+    mc_stop
+    mc_start
+    ;;
+  update)
+    mc_stop
+    mc_backup
+    mc_update
+    mc_start
+    ;;
+  backup)
+    mc_backup
+    ;;
+  status)
+    if pgrep -u $USERNAME -f $SERVICE > /dev/null
+    then
+      echo "$SERVICE is running."
+    else
+      echo "$SERVICE is not running."
+    fi
+    ;;
+  view)
+    mc_view
+    ;;
+  command)
+    if [ $# -gt 1 ]; then
+      shift
+      mc_command "$*"
+    else
+      echo "Must specify server command (try 'help'?)"
+    fi
+    ;;
+
+  *)
+  echo "Usage: $0 {start|stop|update|backup|status|view|restart|command \"server command\"}"
+  exit 1
+  ;;
+esac
+
+exit 0
