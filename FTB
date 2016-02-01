@@ -1,34 +1,35 @@
 #!/bin/bash
-# /etc/init.d/ftb
-# version 1.0.0 2013-08-07
+# /etc/init.d/mc_server
+# version 1.1.0 2016-02-01
 
 ### BEGIN INIT INFO
-# Provides:   Feed-the-Beast
+# Provides:   Minecraft
 # Required-Start: $local_fs $remote_fs
 # Required-Stop:  $local_fs $remote_fs
 # Should-Start:   $network
 # Should-Stop:    $network
 # Default-Start:  
 # Default-Stop:   
-# Short-Description:    Feed-the-Beast Mindcrack Server
-# Description:    Interfaces with the Feed-the-Beast Server
+# Short-Description:    Minecraft Server
+# Description:    Interfaces with the Minecraft Server
 ### END INIT INFO
 
 # Default-Start:  2 3 4 5
 # Default-Stop:   0 1 6
 
 #Settings
-SERVICE='ftbserver.jar'
+SERVICE='minecraft_server.jar'
 OPTIONS='nogui'
-USERNAME='ftb'
-WORLD='world'
-MCPATH='/home/ftb/mindcrack'
-MIRRORPATH='/home/ftb/mirror'
-BACKUPPATH='/home/ftb/backups'
-MAXHEAP=1780
+USERNAME='mc'
+WORLD='old_world'
+SCREEN_NAME='minecraft_server'
+MCPATH='/home/mc/minecraft'
+MIRRORPATH='/home/mc/mirror'
+BACKUPPATH='/home/mc/backups'
+MAXHEAP=1536
 MINHEAP=1536
 HISTORY=1024
-CPU_COUNT=8
+CPU_COUNT=2
 INVOCATION="java -Xms${MINHEAP}M -Xmx${MAXHEAP}M -XX:+UseConcMarkSweepGC \
 -XX:+CMSIncrementalPacing -XX:ParallelGCThreads=$CPU_COUNT -XX:+AggressiveOpts \
 -jar $SERVICE $OPTIONS"
@@ -45,7 +46,7 @@ as_user() {
 mc_view() {
   if  pgrep -u $USERNAME -f $SERVICE > /dev/null
   then
-    screen -drS ftb
+    screen -drS $SCREEN_NAME
   else
     echo "Error! $SERVICE is not running!"
   fi
@@ -58,8 +59,8 @@ mc_start() {
   else
     echo "Starting $SERVICE..."
     cd $MCPATH
-    screen -dmS ftb
-    screen -p 0 -S ftb -X stuff "sudo -u ftb -- $INVOCATION ; exit
+    screen -dmS $SCREEN_NAME
+    screen -p 0 -S $SCREEN_NAME -X stuff "sudo -u mc -- $INVOCATION ; exit
 "
     sleep 7
     if pgrep -u $USERNAME -f $SERVICE > /dev/null
@@ -75,11 +76,11 @@ mc_saveoff() {
   if pgrep -u $USERNAME -f $SERVICE > /dev/null
   then
     echo "$SERVICE is running... suspending saves"
-    screen -p 0 -S ftb -X stuff "say Automatic worlds saves disabled
+    screen -p 0 -S $SCREEN_NAME -X stuff "say Automatic worlds saves disabled
 "
-    screen -p 0 -S ftb -X stuff "save-off
+    screen -p 0 -S $SCREEN_NAME -X stuff "save-off
 "
-    screen -p 0 -S ftb -X stuff "save-all
+    screen -p 0 -S $SCREEN_NAME -X stuff "save-all
 "
     sync
     sleep 10
@@ -92,9 +93,9 @@ mc_saveon() {
   if pgrep -u $USERNAME -f $SERVICE > /dev/null
   then
     echo "$SERVICE is running... re-enabling saves"
-    screen -p 0 -S ftb -X stuff "save-on
+    screen -p 0 -S $SCREEN_NAME -X stuff "save-on
 "
-    screen -p 0 -S ftb -X stuff "say Automatic world saves enabled
+    screen -p 0 -S $SCREEN_NAME -X stuff "say Automatic world saves enabled
 "
   else
     echo "$SERVICE is not running. Not resuming saves."
@@ -105,12 +106,12 @@ mc_stop() {
   if pgrep -u $USERNAME -f $SERVICE > /dev/null
   then
     echo "Stopping $SERVICE"
-    screen -p 0 -S ftb -X stuff "say SERVER SHUTTING DOWN IN 10 SECONDS. Saving map...
+    screen -p 0 -S $SCREEN_NAME -X stuff "say SERVER SHUTTING DOWN IN 10 SECONDS. Saving map...
 "
-    screen -p 0 -S ftb -X stuff "save-all
+    screen -p 0 -S $SCREEN_NAME -X stuff "save-all
 "
     sleep 10
-    screen -p 0 -S ftb -X stuff "stop
+    screen -p 0 -S $SCREEN_NAME -X stuff "stop
 "
     sleep 7
   else
@@ -149,7 +150,7 @@ mc_update() {
 }
 
 mc_backup() {
-    screen -p 0 -S ftb -X stuff "say Sarting Backup... expect some lag
+    screen -p 0 -S $SCREEN_NAME -X stuff "say Sarting Backup... expect some lag
 "
     echo "Backing up minecraft server data..."
     NOW=`date "+%Y-%m-%d_%Hh%M"`
@@ -162,7 +163,7 @@ mc_backup() {
     as_user "tar -C \"$MIRRORPATH\" -czf \"$BACKUP_FILE\" \"$MIRRORPATH\""
 
     echo "Done."
-    screen -p 0 -S ftb -X stuff "say Back up complete. Take care now
+    screen -p 0 -S $SCREEN_NAME -X stuff "say Back up complete. Take care now
 "
 }
 
@@ -172,7 +173,7 @@ mc_command() {
   then
     pre_log_len=`wc -l "$MCPATH/server.log" | awk '{print $1}'`
     echo "$SERVICE is running... executing command"
-    screen -p 0 -S ftb -X stuff "$command
+    screen -p 0 -S $SCREEN_NAME -X stuff "$command
 "
     sleep .1 # assumes that the command will run and print to the log file in less than .1 seconds
     # print output
